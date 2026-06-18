@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hologram Bird - Infallible Fix</title>
+    <title>Hologram Bird - Wireframe Mode</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; }
         #holo-canvas { width: 100vw; height: 100vh; display: block; }
@@ -56,7 +56,8 @@
           hologramColor: "#00d5ff",
           enableBlinking: true,
           blinkFresnelOnly: true,
-          hologramOpacity: 0.5
+          hologramOpacity: 0.5,
+          wireframe: false // Valore di partenza: solido (false)
         };
 
         var holographicMaterial = new THREE.ShaderMaterial({
@@ -108,7 +109,7 @@
             float random(vec2 p) { return fract((cos(dot(p, vec2(12.9898,78.233))) * 43758.5453)); }
 
             void main() {
-              // 1. SCANLINES IN SCREEN SPACE (Il segreto di Mancini per l'effetto cinema sottile)
+              // SCANLINES IN SCREEN SPACE (Mancini original)
               vec2 vCoords = vPos.xy;
               vCoords /= vPos.w;
               vCoords = vCoords * 0.5 + 0.5;
@@ -121,7 +122,6 @@
               scanlines *= smoothstep(1.3 * cos(time * signalSpeed + myUV.y * scanlineSize), 0.78, 0.9);
               scanlines *= max(0.25, sin(time * signalSpeed) * 1.0);        
               
-              // Distorsione cromatica RGB originale
               float r = random(vUv);
               float g = random(vUv * 20.2);
               float b = random(vUv * 0.9);
@@ -129,7 +129,7 @@
               holoColor += vec4(r*scanlines, b*scanlines, r, 1.0) / 84.;
               vec4 scanlineMix = mix(vec4(0.0), holoColor, holoColor.a);
 
-              // 2. FRESNEL IN VIEW SPACE (Garantisce che il modello sia sempre visibile)
+              // FRESNEL IN VIEW SPACE (Infallibile)
               vec3 normal = normalize(vNormal);
               vec3 viewDir = normalize(vViewPosition);
               float dotProduct = max(dot(normal, viewDir), 0.0);
@@ -137,7 +137,6 @@
               float fresnelEffect = dotProduct * (1.6 - fresnelOpacity / 2.0);
               fresnelEffect = clamp(fresnelAmount - fresnelEffect, 0.0, fresnelOpacity);
 
-              // Sfarfallio (Blinking)
               float blinkValue = (enableBlinking > 0.5) ? 0.6 - signalSpeed : 1.0;
               float blink = flicker(blinkValue, time * signalSpeed * 0.02);
           
@@ -154,11 +153,12 @@
           transparent: true,
           blending: THREE.AdditiveBlending, 
           depthWrite: false,
-          side: THREE.DoubleSide
+          side: THREE.DoubleSide,
+          wireframe: params.wireframe // Impostazione iniziale nativa
         });
 
         // ==========================================
-        // CONFIGURAZIONE DAT.GUI (Nomi originali)
+        // CONFIGURAZIONE DAT.GUI
         // ==========================================
         var gui = new dat.GUI();
         var folder = gui.addFolder('Controls');
@@ -171,10 +171,17 @@
         folder.add(params, 'enableBlinking').name('Enable Blinking').onChange(v => holographicMaterial.uniforms.enableBlinking.value = v ? 1.0 : 0.0);
         folder.add(params, 'blinkFresnelOnly').name('Blink Fresnel Only').onChange(v => holographicMaterial.uniforms.blinkFresnelOnly.value = v ? 1.0 : 0.0);
         folder.add(params, 'hologramOpacity', 0, 1).name('Hologram Opacity').onChange(v => holographicMaterial.uniforms.hologramOpacity.value = v);
+        
+        // AGGIUNTA AGGIORNAMENTO WIREFRAME IN TEMPO REALE
+        folder.add(params, 'wireframe').name('Wireframe Mode').onChange(v => {
+            holographicMaterial.wireframe = v;
+            holographicMaterial.needsUpdate = true; // Forza lo shader a ricompilarsi per mostrare le linee
+        });
+        
         folder.open();
 
         // ==========================================
-        // CARICAMENTO SICURO TRAMITE CDN CELESTIALE
+        // CARICAMENTO MODELLO TRAMITE CDN
         // ==========================================
         var dracoLoader = new THREE.DRACOLoader(); 
         dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/'); 
@@ -182,7 +189,6 @@
         var loader = new THREE.GLTFLoader(); 
         loader.setDRACOLoader(dracoLoader); 
 
-        // jsDelivr CDN risolve i problemi dei tipi MIME di GitHub, facendo passare il file Draco al volo
         var modelUrl = 'https://cdn.jsdelivr.net/gh/Ipampero/drinkingbird-asset@main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb';
 
         loader.load( 
