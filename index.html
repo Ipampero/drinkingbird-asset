@@ -5,8 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hologram Bird</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: transparent; }
+        /* Sfondo scuro per far brillare il neon, toglie i bordi bianchi */
+        body { margin: 0; overflow: hidden; background-color: #050505; }
         #holo-canvas { width: 100vw; height: 100vh; display: block; }
+        
+        /* Stile della scritta di caricamento */
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #00d5ff; font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; 
+            letter-spacing: 2px; text-shadow: 0 0 15px #00d5ff; z-index: 10;
+        }
     </style>
     
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script> 
@@ -17,12 +25,14 @@
 </head>
 <body>
 
+    <div id="loading">Caricamento Ologramma...</div>
+    
     <canvas id="holo-canvas"></canvas>
 
     <script>
         var canvas = document.getElementById('holo-canvas');
         var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
-        renderer.setClearColor(0x000000, 1); // Sfondo nero per vedere bene la luce!
+        renderer.setClearColor(0x000000, 0); // Trasparente per far vedere il background del CSS
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -179,10 +189,13 @@
         var loader = new THREE.GLTFLoader(); 
         loader.setDRACOLoader(dracoLoader); 
 
-        // Caricamento velocissimo dello stesso file GLB presente nella repository!
+        // TORNATI AL LINK ASSOLUTO: Sicuro al 100% e bypassa i bug di GitHub Pages
         loader.load( 
-          'TwixDrinkingBirdLastRigwireframecomporessed-v1.glb', 
+          'https://raw.githubusercontent.com/Ipampero/drinkingbird-asset/main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb?v=99', 
           function(gltf) { 
+            // Rimuove la scritta "Caricamento Ologramma..." quando ha finito!
+            document.getElementById('loading').style.display = 'none'; 
+            
             var model = gltf.scene; 
             var box = new THREE.Box3().setFromObject(model); 
             var center = box.getCenter(new THREE.Vector3()); 
@@ -192,6 +205,13 @@
             model.scale.setScalar(scale); 
             model.traverse(function(child) { if (child.isMesh) child.material = hologramMaterial; }); 
             scene.add(model); 
+          },
+          undefined,
+          function(err) { 
+             console.error('Errore:', err); 
+             // Se qualcosa va storto, la scritta te lo dice
+             document.getElementById('loading').innerHTML = "Errore nel caricamento 3D!";
+             document.getElementById('loading').style.color = "red";
           }
         ); 
 
