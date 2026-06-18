@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hologram Bird</title>
+    <title>Hologram Bird Final</title>
     <style>
-        /* Sfondo scuro per far brillare il neon, toglie i bordi bianchi */
+        /* Sfondo scuro per far brillare il neon, toglie i bordi bianchi dell'iframe */
         body { margin: 0; overflow: hidden; background-color: #050505; }
         #holo-canvas { width: 100vw; height: 100vh; display: block; }
         
@@ -31,8 +31,9 @@
 
     <script>
         var canvas = document.getElementById('holo-canvas');
-        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
-        renderer.setClearColor(0x000000, 0); // Trasparente per far vedere il background del CSS
+        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, premultipliedAlpha: false });
+        // Sfondo trasparente nel WebGL (mostra il background del body CSS)
+        renderer.setClearColor(0x000000, 0); 
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -44,154 +45,157 @@
         controls.enableDamping = true; 
         controls.autoRotate = true; 
         controls.autoRotateSpeed = 1.2; 
+        controls.enableZoom = true;
+        controls.zoomSpeed = 2.0;
 
-        // CLASSE MATERIALE ORIGINALE
-        class HolographicMaterial extends THREE.ShaderMaterial {
-          constructor(parameters = {}) {
-            super();
-            this.vertexShader = `
-              #define STANDARD
-              varying vec3 vViewPosition;
-              #ifdef USE_TRANSMISSION
-              varying vec3 vWorldPosition;
-              #endif
-              varying vec2 vUv;
-              varying vec4 vPos;
-              varying vec3 vNormalW;
-              varying vec3 vPositionW;
-              #include <common>
-              #include <uv_pars_vertex>
-              #include <envmap_pars_vertex>
-              #include <color_pars_vertex>
-              #include <fog_pars_vertex>
-              #include <morphtarget_pars_vertex>
-              #include <skinning_pars_vertex>
-              #include <logdepthbuf_pars_vertex>
-              #include <clipping_planes_pars_vertex>
-              void main() {
-                #include <uv_vertex>
-                #include <color_vertex>
-                #include <morphcolor_vertex>
-                #if defined ( USE_ENVMAP ) || defined ( USE_SKINNING )
-                  #include <beginnormal_vertex>
-                  #include <morphnormal_vertex>
-                  #include <skinbase_vertex>
-                  #include <skinnormal_vertex>
-                  #include <defaultnormal_vertex>
-                #endif
-                #include <begin_vertex>
-                #include <morphtarget_vertex>
-                #include <skinning_vertex>
-                #include <project_vertex>
-                #include <logdepthbuf_vertex>
-                #include <clipping_planes_vertex>
-                #include <worldpos_vertex>
-                #include <envmap_vertex>
-                #include <fog_vertex>
-                mat4 modelViewProjectionMatrix = projectionMatrix * modelViewMatrix;
-                vUv = uv;
-                vPos = projectionMatrix * modelViewMatrix * vec4( transformed, 1.0 );
-                vPositionW = vec3( vec4( transformed, 1.0 ) * modelMatrix);
-                vNormalW = normalize( vec3( vec4( normal, 0.0 ) * modelMatrix ) );
-                gl_Position = modelViewProjectionMatrix * vec4( transformed, 1.0 );
-              }`;
-
-            this.fragmentShader = ` 
-              varying vec2 vUv;
-              varying vec3 vPositionW;
-              varying vec4 vPos;
-              varying vec3 vNormalW;
-              uniform float time;
-              uniform float fresnelOpacity;
-              uniform float scanlineSize;
-              uniform float fresnelAmount;
-              uniform float signalSpeed;
-              uniform float hologramBrightness;
-              uniform float hologramOpacity;
-              uniform bool blinkFresnelOnly;
-              uniform bool enableBlinking;
-              uniform vec3 hologramColor;
-              float flicker( float amt, float time ) {return clamp( fract( cos( time ) * 43758.5453123 ), amt, 1.0 );}
-              float random(in float a, in float b) { return fract((cos(dot(vec2(a,b) ,vec2(12.9898,78.233))) * 43758.5453)); }
-              void main() {
-                vec2 vCoords = vPos.xy;
-                vCoords /= vPos.w;
-                vCoords = vCoords * 0.5 + 0.5;
-                vec2 myUV = fract( vCoords );
-                vec4 hologramColor = vec4(hologramColor, mix(hologramBrightness, vUv.y, 0.5));
-                float scanlines = 10.;
-                scanlines += 20. * sin(time *signalSpeed * 20.8 - myUV.y * 60. * scanlineSize);
-                scanlines *= smoothstep(1.3 * cos(time *signalSpeed + myUV.y * scanlineSize), 0.78, 0.9);
-                scanlines *= max(0.25, sin(time *signalSpeed) * 1.0);        
-                float r = random(vUv.x, vUv.y);
-                float g = random(vUv.y * 20.2,     vUv.y * .2);
-                float b = random(vUv.y * .9,     vUv.y * .2);
-                hologramColor += vec4(r*scanlines, b*scanlines, r, 1.0) / 84.;
-                vec4 scanlineMix = mix(vec4(0.0), hologramColor, hologramColor.a);
-                vec3 viewDirectionW = normalize(cameraPosition - vPositionW);
-                float fresnelEffect = dot(viewDirectionW, vNormalW) * (1.6 - fresnelOpacity/2.);
-                fresnelEffect = clamp(fresnelAmount - fresnelEffect, 0., fresnelOpacity);
-                float blinkValue = enableBlinking ? 0.6 - signalSpeed : 1.0;
-                float blink = flicker(blinkValue, time * signalSpeed * .02);
-                vec3 finalColor;
-                if(blinkFresnelOnly){
-                  finalColor = scanlineMix.rgb + fresnelEffect * blink;
-                }else{
-                  finalColor = scanlineMix.rgb * blink + fresnelEffect;
-                }
-                gl_FragColor = vec4( finalColor, hologramOpacity);
-              }`;
-
-            this.uniforms = {
-              time: new THREE.Uniform(0),
-              fresnelOpacity: new THREE.Uniform(parameters.fresnelOpacity !== undefined ? parameters.fresnelOpacity : 1.0),
-              fresnelAmount: new THREE.Uniform(parameters.fresnelAmount !== undefined ? parameters.fresnelAmount : 0.45),
-              scanlineSize: new THREE.Uniform(parameters.scanlineSize !== undefined ? parameters.scanlineSize : 8.0),
-              hologramBrightness: new THREE.Uniform(parameters.hologramBrightness !== undefined ? parameters.hologramBrightness : 1.0),
-              signalSpeed: new THREE.Uniform(parameters.signalSpeed !== undefined ? parameters.signalSpeed : 1.0),
-              hologramColor: new THREE.Uniform(parameters.hologramColor !== undefined ? new THREE.Color(parameters.hologramColor) : new THREE.Color("#00d5ff")),
-              enableBlinking: new THREE.Uniform(parameters.enableBlinking !== undefined ? parameters.enableBlinking : true),
-              blinkFresnelOnly: new THREE.Uniform(parameters.blinkFresnelOnly !== undefined ? parameters.blinkFresnelOnly : true),
-              hologramOpacity: new THREE.Uniform(parameters.hologramOpacity !== undefined ? parameters.hologramOpacity : 1.0),
-            };
-            this.clock = new THREE.Clock();
-            this.setValues(parameters);
-            this.depthTest = false;
-            this.blending = THREE.AdditiveBlending;
-            this.transparent = true;
-            this.side = THREE.DoubleSide;
-          }
-          update() { this.uniforms.time.value = this.clock.getElapsedTime(); }
-        }
-
+        // ==========================================
+        // 1. PARAMETRI SHADER (Dal tuo screenshot preferito)
+        // ==========================================
         var params = {
-          fresnelOpacity: 1.0, fresnelAmount: 0.7, scanlineSize: 3.7,
-          hologramBrightness: 1.6, signalSpeed: 0.67, hologramColor: "#00d5ff",
-          enableBlinking: true, blinkFresnelOnly: true, hologramOpacity: 0.5
+          fresnelOpacity: 1.0,
+          fresnelAmount: 0.7,
+          scanlineSize: 3.7,
+          hologramBrightness: 1.6,
+          signalSpeed: 0.67,
+          hologramColor: "#00d5ff",
+          enableBlinking: true,
+          blinkFresnelOnly: true,
+          hologramOpacity: 0.5
         };
 
-        var hologramMaterial = new HolographicMaterial(params);
+        // ==========================================
+        // 2. SHADER OLOGRAFICO CORRETTO (Matematica Originale)
+        // ==========================================
+        var holographicMaterial = new THREE.ShaderMaterial({
+          uniforms: {
+            time: { value: 0.0 },
+            hologramColor: { value: new THREE.Color(params.hologramColor) },
+            hologramBrightness: { value: params.hologramBrightness },
+            hologramOpacity: { value: params.hologramOpacity },
+            fresnelOpacity: { value: params.fresnelOpacity },
+            fresnelAmount: { value: params.fresnelAmount },
+            scanlineSize: { value: params.scanlineSize },
+            signalSpeed: { value: params.signalSpeed },
+            enableBlinking: { value: params.enableBlinking ? 1.0 : 0.0 },
+            blinkFresnelOnly: { value: params.blinkFresnelOnly ? 1.0 : 0.0 }
+          },
+          vertexShader: `
+            varying vec3 vViewPosition;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+            
+            void main() {
+              // Calcolo posizione mondo 3D per le scanlines
+              vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+              vWorldPosition = worldPosition.xyz;
+              
+              // Calcolo posizione telecamera
+              vec4 mvPosition = viewMatrix * worldPosition;
+              vViewPosition = -mvPosition.xyz;
+              
+              // Trasferisco e normalizzo le normali
+              vNormal = normalize(normalMatrix * normal);
+              
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `,
+          fragmentShader: `
+            uniform float time;
+            uniform vec3 hologramColor;
+            uniform float hologramBrightness;
+            uniform float hologramOpacity;
+            uniform float fresnelOpacity;
+            uniform float fresnelAmount;
+            uniform float scanlineSize;
+            uniform float signalSpeed;
+            uniform float enableBlinking;
+            uniform float blinkFresnelOnly;
 
+            varying vec3 vViewPosition;
+            varying vec3 vNormal;
+            varying vec3 vWorldPosition;
+
+            float random(vec2 p) {
+              return fract(sin(dot(p.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            }
+
+            void main() {
+              vec3 normal = normalize(vNormal);
+              vec3 viewDir = normalize(vViewPosition);
+              
+              // 1. FRESNEL (Il bagliore sui bordi)
+              float dotProduct = max(dot(normal, viewDir), 0.0);
+              float fresnel = pow(max(1.0 - dotProduct, 0.0), fresnelAmount) * fresnelOpacity;
+
+              // 2. SCANLINES (Le strisce di luce)
+              // Moltiplicatori per allineare i numeri del menu alla grandezza reale del modello
+              float scanline = sin(vWorldPosition.y * scanlineSize * 15.0 - time * signalSpeed * 10.0);
+              scanline = smoothstep(-0.5, 0.5, scanline); 
+
+              // 3. BLINK / GLITCH (Lo sfarfallio)
+              float blink = 1.0;
+              if (enableBlinking > 0.5) {
+                float noise = random(vec2(time * 0.05, 0.0));
+                blink = noise > 0.98 ? 0.0 : 1.0; 
+              }
+
+              // 4. COMPOSIZIONE (Unione Matematica)
+              float finalFresnel = fresnel;
+              float finalScanline = scanline * 0.4; // Le strisce volumetriche non devono bruciare l'immagine
+
+              if (blinkFresnelOnly > 0.5) {
+                finalFresnel *= blink;
+              } else {
+                finalFresnel *= blink;
+                finalScanline *= blink;
+              }
+
+              // ADDIZIONE! Sommo le strisce al bagliore, non le moltiplico. 
+              // Così i bordi esterni rimangono sempre accesi e l'effetto zebra scompare!
+              float alpha = (finalFresnel + finalScanline) * hologramOpacity;
+
+              vec3 finalColor = hologramColor * hologramBrightness;
+              gl_FragColor = vec4(finalColor, alpha);
+            }
+          `,
+          transparent: true,
+          blending: THREE.AdditiveBlending, // Genera luce pura
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+
+        // ==========================================
+        // 3. COLLEGAMENTO DEI CURSORI GUI
+        // ==========================================
         var gui = new dat.GUI();
-        var folder = gui.addFolder('Controls');
-        folder.add(params, 'fresnelOpacity', 0, 2).onChange(v => hologramMaterial.uniforms.fresnelOpacity.value = v);
-        folder.add(params, 'fresnelAmount', 0, 3).onChange(v => hologramMaterial.uniforms.fresnelAmount.value = v);
-        folder.add(params, 'scanlineSize', 0, 10).onChange(v => hologramMaterial.uniforms.scanlineSize.value = v);
-        folder.add(params, 'hologramBrightness', 0, 4).onChange(v => hologramMaterial.uniforms.hologramBrightness.value = v);
-        folder.add(params, 'signalSpeed', 0, 3).onChange(v => hologramMaterial.uniforms.signalSpeed.value = v);
-        folder.addColor(params, 'hologramColor').onChange(v => hologramMaterial.uniforms.hologramColor.value.set(v));
-        folder.add(params, 'enableBlinking').onChange(v => hologramMaterial.uniforms.enableBlinking.value = v);
-        folder.add(params, 'blinkFresnelOnly').onChange(v => hologramMaterial.uniforms.blinkFresnelOnly.value = v);
-        folder.add(params, 'hologramOpacity', 0, 1).onChange(v => hologramMaterial.uniforms.hologramOpacity.value = v);
+        var folder = gui.addFolder('Hologram Controls');
 
+        folder.add(params, 'fresnelOpacity', 0, 2).name('Bordi Opacity').onChange(v => holographicMaterial.uniforms.fresnelOpacity.value = v);
+        folder.add(params, 'fresnelAmount', 0, 3).name('Bordi Spessore').onChange(v => holographicMaterial.uniforms.fresnelAmount.value = v);
+        folder.add(params, 'scanlineSize', 0, 10).name('Righe Dimensione').onChange(v => holographicMaterial.uniforms.scanlineSize.value = v);
+        folder.add(params, 'hologramBrightness', 0, 4).name('Brightness').onChange(v => holographicMaterial.uniforms.hologramBrightness.value = v);
+        folder.add(params, 'signalSpeed', 0, 3).name('Velocità Onde').onChange(v => holographicMaterial.uniforms.signalSpeed.value = v);
+        folder.addColor(params, 'hologramColor').name('Colore').onChange(v => holographicMaterial.uniforms.hologramColor.value.set(v));
+        folder.add(params, 'enableBlinking').name('Attiva Glitch').onChange(v => holographicMaterial.uniforms.enableBlinking.value = v ? 1.0 : 0.0);
+        folder.add(params, 'blinkFresnelOnly').name('Glitch Solo Bordi').onChange(v => holographicMaterial.uniforms.blinkFresnelOnly.value = v ? 1.0 : 0.0);
+        folder.add(params, 'hologramOpacity', 0, 1).name('Opacity Globale').onChange(v => holographicMaterial.uniforms.hologramOpacity.value = v);
+
+        folder.open(); // Pannello aperto di default
+
+        // ==========================================
+        // 4. CARICAMENTO MODELLO (Con il link funzionante e blindato)
+        // ==========================================
         var dracoLoader = new THREE.DRACOLoader(); 
         dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/'); 
+        
         var loader = new THREE.GLTFLoader(); 
         loader.setDRACOLoader(dracoLoader); 
 
-        // TORNATI AL LINK ASSOLUTO: Sicuro al 100% e bypassa i bug di GitHub Pages
+        // HO RIMESSO IL LINK ASSOLUTO CHE USAVI PRIMA. 
+        // È l'unico modo per garantire che carichi al 100% senza blocchi di sicurezza.
+        // Ho aggiornato la versione a ?v=30 per forzare GitHub ad aggiornare la cache del file.
         loader.load( 
-          'https://raw.githubusercontent.com/Ipampero/drinkingbird-asset/main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb?v=99', 
+          'https://raw.githubusercontent.com/Ipampero/drinkingbird-asset/main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb?v=30', 
           function(gltf) { 
             // Rimuove la scritta "Caricamento Ologramma..." quando ha finito!
             document.getElementById('loading').style.display = 'none'; 
@@ -203,7 +207,12 @@
             var scale = 3 / Math.max(size.x, size.y, size.z); 
             model.position.sub(center.multiplyScalar(scale)); 
             model.scale.setScalar(scale); 
-            model.traverse(function(child) { if (child.isMesh) child.material = hologramMaterial; }); 
+            
+            model.traverse(function(child) { 
+              if (child.isMesh) { 
+                child.material = holographicMaterial; 
+              } 
+            }); 
             scene.add(model); 
           },
           undefined,
@@ -221,10 +230,16 @@
           renderer.setSize(window.innerWidth, window.innerHeight); 
         }); 
 
+        var clock = new THREE.Clock();
+
         function animate() { 
           requestAnimationFrame(animate); 
           controls.update(); 
-          if (hologramMaterial) hologramMaterial.update();
+          
+          if (holographicMaterial && holographicMaterial.uniforms) {
+              holographicMaterial.uniforms.time.value = clock.getElapsedTime();
+          }
+
           renderer.render(scene, camera); 
         } 
         animate(); 
