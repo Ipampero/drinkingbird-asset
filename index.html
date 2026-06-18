@@ -1,233 +1,376 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hologram Bird - Wireframe Mode</title>
+    <title>Hologram Bird</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; }
         #holo-canvas { width: 100vw; height: 100vh; display: block; }
-        
-        #loading {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #00d5ff; font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; 
-            letter-spacing: 2px; text-shadow: 0 0 15px #00d5ff; z-index: 10; text-align: center;
-        }
     </style>
     
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script> 
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script> 
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script> 
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script> 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
 </head>
 <body>
 
-    <div id="loading">Loading Hologram...</div>
-    <canvas id="holo-canvas"></canvas>
+  <div style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.85);color:#00e5ff;padding:8px 12px;border-radius:8px;font-family:sans-serif;font-size:14px;z-index:10000;box-shadow:0 2px 5px rgba(0,0,0,0.5);display:flex;align-items:center;">
+    <input type="checkbox" id="toggle-gui" style="margin-right:8px;cursor:pointer;">
+    <label for="toggle-gui" style="cursor:pointer;font-weight:bold;letter-spacing:1px;">Controllers</label>
+  </div>
 
-    <script>
-        var canvas = document.getElementById('holo-canvas');
-        var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, premultipliedAlpha: false });
-        renderer.setClearColor(0x000000, 0); 
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
+  <div id="holo-gui" style="display:none;position:absolute;top:50px;right:10px;background:rgba(0,0,0,0.85);color:#fff;padding:15px;border-radius:8px;font-family:sans-serif;font-size:12px;z-index:9999;width:240px;box-shadow:0 4px 10px rgba(0,0,0,0.5);line-height:1.5;">
+    <div style="font-weight:bold;margin-bottom:10px;border-bottom:1px solid #555;padding-bottom:5px;font-size:13px;color:#00e5ff;">Hologram Calibration</div>
+    
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Global Brightness: <span id="val-bright" style="color:#00e5ff;">1.3</span></label>
+      <input type="range" id="slide-bright" min="0.1" max="4" step="0.1" value="1.3" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
 
-        var scene = new THREE.Scene(); 
-        var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100); 
-        camera.position.set(0, 0.5, 4.5); 
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Global Opacity: <span id="val-opacity" style="color:#00e5ff;">0.45</span></label>
+      <input type="range" id="slide-opacity" min="0.0" max="1.0" step="0.05" value="0.45" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
+    
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Edge Opacity (Fresnel): <span id="val-fresnelOp" style="color:#00e5ff;">0.6</span></label>
+      <input type="range" id="slide-fresnelOp" min="0.0" max="2.0" step="0.1" value="0.6" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
 
-        var controls = new THREE.OrbitControls(camera, canvas); 
-        controls.enableDamping = true; 
-        controls.autoRotate = true; 
-        controls.autoRotateSpeed = 1.2; 
-        controls.enableZoom = true;
-        controls.zoomSpeed = 2.0;
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Edge Thickness: <span id="val-fresnelAm" style="color:#00e5ff;">2.2</span></label>
+      <input type="range" id="slide-fresnelAm" min="0.1" max="4.0" step="0.1" value="2.2" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
+    
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Scanline Amount: <span id="val-scanlineSz" style="color:#00e5ff;">14.5</span></label>
+      <input type="range" id="slide-scanlineSz" min="0" max="20" step="0.5" value="14.5" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
 
-        // ====================================================================
-        // SHADER IBRIDO: Scanline eteree di Mancini + Riflesso indistruttibile
-        // ====================================================================
-        var params = {
-          fresnelOpacity: 1.0,
-          fresnelAmount: 0.7,
-          scanlineSize: 3.7,
-          hologramBrightness: 1.6,
-          signalSpeed: 0.67,
-          hologramColor: "#00d5ff",
-          enableBlinking: true,
-          blinkFresnelOnly: true,
-          hologramOpacity: 0.5,
-          wireframe: false // Valore di partenza: solido (false)
-        };
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Scanline Intensity: <span id="val-scanlineOp" style="color:#00e5ff;">0.1</span></label>
+      <input type="range" id="slide-scanlineOp" min="0.0" max="1.0" step="0.05" value="0.1" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
+    
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Signal Speed: <span id="val-speed" style="color:#00e5ff;">0.88</span></label>
+      <input type="range" id="slide-speed" min="0" max="4" step="0.01" value="0.88" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
 
-        var holographicMaterial = new THREE.ShaderMaterial({
-          uniforms: {
-            time: { value: 0.0 },
-            hologramColor: { value: new THREE.Color(params.hologramColor) },
-            hologramBrightness: { value: params.hologramBrightness },
-            hologramOpacity: { value: params.hologramOpacity },
-            fresnelOpacity: { value: params.fresnelOpacity },
-            fresnelAmount: { value: params.fresnelAmount },
-            scanlineSize: { value: params.scanlineSize },
-            signalSpeed: { value: params.signalSpeed },
-            enableBlinking: { value: params.enableBlinking ? 1.0 : 0.0 },
-            blinkFresnelOnly: { value: params.blinkFresnelOnly ? 1.0 : 0.0 }
-          },
-          vertexShader: `
-            varying vec3 vViewPosition;
-            varying vec3 vNormal;
-            varying vec4 vPos;
-            varying vec2 vUv;
-            
-            void main() {
-              vUv = uv;
-              vNormal = normalize(normalMatrix * normal);
-              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-              vViewPosition = -mvPosition.xyz;
-              vPos = projectionMatrix * mvPosition;
-              gl_Position = vPos;
-            }
-          `,
-          fragmentShader: `
-            uniform float time;
-            uniform vec3 hologramColor;
-            uniform float hologramBrightness;
-            uniform float hologramOpacity;
-            uniform float fresnelOpacity;
-            uniform float fresnelAmount;
-            uniform float scanlineSize;
-            uniform float signalSpeed;
-            uniform float enableBlinking;
-            uniform float blinkFresnelOnly;
+    <div style="margin-bottom:8px;">
+      <label style="display:flex;justify-content:space-between;">Aberration (Red/Cyan): <span id="val-rgb" style="color:#00e5ff;">0.0015</span></label>
+      <input type="range" id="slide-rgb" min="0.0" max="0.02" step="0.001" value="0.0015" style="width:100%;margin-top:2px;cursor:pointer;">
+    </div>
+    
+    <div style="margin-bottom:10px;">
+      <label style="display:block;margin-bottom:2px;">Base Color:</label>
+      <input type="color" id="slide-color" value="#00ffff" style="width:100%;border:none;height:28px;background:transparent;cursor:pointer;">
+    </div>
+    
+    <div style="margin-bottom:6px;display:flex;align-items:center;">
+      <input type="checkbox" id="check-blink" checked style="margin-right:8px;cursor:pointer;">
+      <label for="check-blink" style="cursor:pointer;">Enable Glitch</label>
+    </div>
 
-            varying vec3 vViewPosition;
-            varying vec3 vNormal;
-            varying vec4 vPos;
-            varying vec2 vUv;
+    <div style="margin-bottom:6px;display:flex;align-items:center;">
+      <input type="checkbox" id="check-blinkFresnel" checked style="margin-right:8px;cursor:pointer;">
+      <label for="check-blinkFresnel" style="cursor:pointer;">Glitch Edges Only</label>
+    </div>
+  </div>
 
-            float flicker( float amt, float time ) {return clamp( fract( cos( time ) * 43758.5453123 ), amt, 1.0 );}
-            float random(vec2 p) { return fract((cos(dot(p, vec2(12.9898,78.233))) * 43758.5453)); }
+  <canvas id="holo-canvas"></canvas>
 
-            void main() {
-              // SCANLINES IN SCREEN SPACE (Mancini original)
-              vec2 vCoords = vPos.xy;
-              vCoords /= vPos.w;
-              vCoords = vCoords * 0.5 + 0.5;
-              vec2 myUV = fract( vCoords );
+<script> 
+var params = {
+  fresnelOpacity: 0.6,
+  fresnelAmount: 2.2,
+  scanlineSize: 14.5,
+  scanlineOpacity: 0.1,
+  hologramBrightness: 1.3,
+  signalSpeed: 0.88,
+  hologramColor: "#00ffff",
+  enableBlinking: true,
+  blinkFresnelOnly: true,
+  hologramOpacity: 0.45,
+  rgbShift: 0.0015
+};
 
-              vec4 holoColor = vec4(hologramColor, mix(hologramBrightness, vUv.y, 0.5));
+var canvas = document.getElementById('holo-canvas'); 
+var W = window.innerWidth; 
+var H = window.innerHeight; 
 
-              float scanlines = 10.;
-              scanlines += 20. * sin(time * signalSpeed * 20.8 - myUV.y * 60. * scanlineSize);
-              scanlines *= smoothstep(1.3 * cos(time * signalSpeed + myUV.y * scanlineSize), 0.78, 0.9);
-              scanlines *= max(0.25, sin(time * signalSpeed) * 1.0);        
-              
-              float r = random(vUv);
-              float g = random(vUv * 20.2);
-              float b = random(vUv * 0.9);
+var renderer = new THREE.WebGLRenderer({ 
+  canvas: canvas, 
+  alpha: true, 
+  antialias: true, 
+  premultipliedAlpha: false 
+}); 
+renderer.setClearColor(0x000000, 0); 
+renderer.setPixelRatio(window.devicePixelRatio); 
+renderer.setSize(W, H); 
 
-              holoColor += vec4(r*scanlines, b*scanlines, r, 1.0) / 84.;
-              vec4 scanlineMix = mix(vec4(0.0), holoColor, holoColor.a);
+var scene = new THREE.Scene(); 
+var camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 100); 
+camera.position.set(0, 0.5, 4.5); 
 
-              // FRESNEL IN VIEW SPACE (Infallibile)
-              vec3 normal = normalize(vNormal);
-              vec3 viewDir = normalize(vViewPosition);
-              float dotProduct = max(dot(normal, viewDir), 0.0);
-              
-              float fresnelEffect = dotProduct * (1.6 - fresnelOpacity / 2.0);
-              fresnelEffect = clamp(fresnelAmount - fresnelEffect, 0.0, fresnelOpacity);
+var controls = new THREE.OrbitControls(camera, canvas); 
+controls.enableDamping = true; 
+controls.autoRotate = true; 
+controls.autoRotateSpeed = 1.2; 
+controls.enableZoom = true; 
+controls.zoomSpeed = 2.0; 
 
-              float blinkValue = (enableBlinking > 0.5) ? 0.6 - signalSpeed : 1.0;
-              float blink = flicker(blinkValue, time * signalSpeed * 0.02);
-          
-              vec3 finalColor;
-              if (blinkFresnelOnly > 0.5) {
-                finalColor = scanlineMix.rgb + fresnelEffect * blink;
-              } else {
-                finalColor = scanlineMix.rgb * blink + fresnelEffect;
-              }
+var holographicMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    time: { value: 0.0 },
+    hologramColor: { value: new THREE.Color(params.hologramColor) },
+    hologramBrightness: { value: params.hologramBrightness },
+    hologramOpacity: { value: params.hologramOpacity },
+    fresnelOpacity: { value: params.fresnelOpacity },
+    fresnelAmount: { value: params.fresnelAmount },
+    scanlineSize: { value: params.scanlineSize },
+    scanlineOpacity: { value: params.scanlineOpacity },
+    signalSpeed: { value: params.signalSpeed },
+    enableBlinking: { value: params.enableBlinking ? 1.0 : 0.0 },
+    blinkFresnelOnly: { value: params.blinkFresnelOnly ? 1.0 : 0.0 }
+  },
+  vertexShader: `
+    varying vec3 vViewPosition;
+    varying vec3 vNormal;
+    varying vec3 vWorldPosition;
+    
+    void main() {
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = worldPosition.xyz;
+      vec4 mvPosition = viewMatrix * worldPosition;
+      vViewPosition = -mvPosition.xyz;
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    uniform float time;
+    uniform vec3 hologramColor;
+    uniform float hologramBrightness;
+    uniform float hologramOpacity;
+    uniform float fresnelOpacity;
+    uniform float fresnelAmount;
+    uniform float scanlineSize;
+    uniform float scanlineOpacity; 
+    uniform float signalSpeed;
+    uniform float enableBlinking;
+    uniform float blinkFresnelOnly;
 
-              gl_FragColor = vec4(finalColor, hologramOpacity);
-            }
-          `,
-          transparent: true,
-          blending: THREE.AdditiveBlending, 
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          wireframe: params.wireframe // Impostazione iniziale nativa
-        });
+    varying vec3 vViewPosition;
+    varying vec3 vNormal;
+    varying vec3 vWorldPosition;
 
-        // ==========================================
-        // CONFIGURAZIONE DAT.GUI
-        // ==========================================
-        var gui = new dat.GUI();
-        var folder = gui.addFolder('Controls');
-        folder.add(params, 'fresnelOpacity', 0, 2).name('Fresnel Opacity').onChange(v => holographicMaterial.uniforms.fresnelOpacity.value = v);
-        folder.add(params, 'fresnelAmount', 0, 3).name('Fresnel Amount').onChange(v => holographicMaterial.uniforms.fresnelAmount.value = v);
-        folder.add(params, 'scanlineSize', 0, 10).name('Scanline Size').onChange(v => holographicMaterial.uniforms.scanlineSize.value = v);
-        folder.add(params, 'hologramBrightness', 0, 4).name('Hologram Brightness').onChange(v => holographicMaterial.uniforms.hologramBrightness.value = v);
-        folder.add(params, 'signalSpeed', 0, 3).name('Signal Speed').onChange(v => holographicMaterial.uniforms.signalSpeed.value = v);
-        folder.addColor(params, 'hologramColor').name('Hologram Color').onChange(v => holographicMaterial.uniforms.hologramColor.value.set(v));
-        folder.add(params, 'enableBlinking').name('Enable Blinking').onChange(v => holographicMaterial.uniforms.enableBlinking.value = v ? 1.0 : 0.0);
-        folder.add(params, 'blinkFresnelOnly').name('Blink Fresnel Only').onChange(v => holographicMaterial.uniforms.blinkFresnelOnly.value = v ? 1.0 : 0.0);
-        folder.add(params, 'hologramOpacity', 0, 1).name('Hologram Opacity').onChange(v => holographicMaterial.uniforms.hologramOpacity.value = v);
-        
-        // AGGIUNTA AGGIORNAMENTO WIREFRAME IN TEMPO REALE
-        folder.add(params, 'wireframe').name('Wireframe Mode').onChange(v => {
-            holographicMaterial.wireframe = v;
-            holographicMaterial.needsUpdate = true; // Forza lo shader a ricompilarsi per mostrare le linee
-        });
-        
-        folder.open();
+    float random(vec2 p) {
+      return fract(sin(dot(p.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    }
 
-        // ==========================================
-        // CARICAMENTO MODELLO TRAMITE CDN
-        // ==========================================
-        var dracoLoader = new THREE.DRACOLoader(); 
-        dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/'); 
-        
-        var loader = new THREE.GLTFLoader(); 
-        loader.setDRACOLoader(dracoLoader); 
+    void main() {
+      vec3 normal = length(vNormal) > 0.0001 ? normalize(vNormal) : vec3(0.0, 0.0, 1.0);
+      vec3 viewDir = length(vViewPosition) > 0.0001 ? normalize(vViewPosition) : vec3(0.0, 0.0, 1.0);
+      
+      float dotProduct = max(dot(normal, viewDir), 0.0);
+      float fresnel = pow(1.0 - dotProduct, fresnelAmount) * fresnelOpacity;
 
-        var modelUrl = 'https://cdn.jsdelivr.net/gh/Ipampero/drinkingbird-asset@main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb';
+      float scanline = sin(vWorldPosition.y * scanlineSize * 15.0 - time * signalSpeed * 10.0);
+      scanline = smoothstep(-0.5, 0.5, scanline); 
 
-        loader.load( 
-          modelUrl, 
-          function(gltf) { 
-            document.getElementById('loading').style.display = 'none'; 
-            var model = gltf.scene; 
-            var box = new THREE.Box3().setFromObject(model); 
-            var center = box.getCenter(new THREE.Vector3()); 
-            var size = box.getSize(new THREE.Vector3()); 
-            var scale = 3 / Math.max(size.x, size.y, size.z); 
-            model.position.sub(center.multiplyScalar(scale)); 
-            model.scale.setScalar(scale); 
-            model.traverse(function(child) { if (child.isMesh) child.material = holographicMaterial; }); 
-            scene.add(model); 
-          },
-          undefined,
-          function(err) { 
-             console.error('Errore:', err); 
-             document.getElementById('loading').innerHTML = "Errore di caricamento!";
-          }
-        ); 
+      float blink = 1.0;
+      if (enableBlinking > 0.5) {
+        float noise = random(vec2(time * 0.05, 0.0));
+        blink = noise > 0.98 ? 0.0 : 1.0; 
+      }
 
-        window.addEventListener('resize', function() { 
-          camera.aspect = window.innerWidth / window.innerHeight; 
-          camera.updateProjectionMatrix(); 
-          renderer.setSize(window.innerWidth, window.innerHeight); 
-        }); 
+      float finalFresnel = fresnel;
+      float finalScanline = scanline * scanlineOpacity;
 
-        var clock = new THREE.Clock();
-        function animate() { 
-          requestAnimationFrame(animate); 
-          controls.update(); 
-          if (holographicMaterial && holographicMaterial.uniforms) {
-              holographicMaterial.uniforms.time.value = clock.getElapsedTime();
-          }
-          renderer.render(scene, camera); 
-        } 
-        animate(); 
-    </script>
+      if (blinkFresnelOnly > 0.5) {
+        finalFresnel *= blink;
+      } else {
+        finalFresnel *= blink;
+        finalScanline *= blink;
+      }
+
+      float alpha = (finalFresnel + finalScanline) * hologramOpacity;
+
+      vec3 finalColor = hologramColor * hologramBrightness;
+      gl_FragColor = vec4(finalColor, alpha);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending, 
+  depthWrite: false, 
+  side: THREE.DoubleSide
+});
+
+var CustomAberrationShader = {
+  uniforms: {
+    "tDiffuse": { value: null },
+    "amount":   { value: 0.005 },
+    "angle":    { value: 0.0 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float amount;
+    uniform float angle;
+    varying vec2 vUv;
+    
+    void main() {
+      vec2 offset = amount * vec2(cos(angle), sin(angle));
+      
+      vec4 cr = texture2D(tDiffuse, vUv + offset);
+      vec4 cg = texture2D(tDiffuse, vUv);
+      vec4 cb = texture2D(tDiffuse, vUv - offset);
+      
+      vec4 baseColor = cg;
+
+      float redFringe = max(0.0, cr.a - cg.a);
+      float blueFringe = max(0.0, cb.a - cg.a);
+
+      vec3 finalColor = baseColor.rgb + (vec3(1.0, 0.0, 0.0) * redFringe * 1.5) + (vec3(0.0, 0.2, 1.0) * blueFringe * 1.5);
+      float finalAlpha = max(cg.a, max(cr.a, cb.a));
+
+      gl_FragColor = vec4(finalColor, finalAlpha);
+    }
+  `
+};
+
+var renderTarget = new THREE.WebGLRenderTarget( W, H, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat, 
+    stencilBuffer: false
+});
+
+var composer = new THREE.EffectComposer( renderer, renderTarget );
+var renderPass = new THREE.RenderPass( scene, camera );
+composer.addPass( renderPass );
+
+var aberrationPass = new THREE.ShaderPass( CustomAberrationShader );
+aberrationPass.uniforms[ 'amount' ].value = params.rgbShift;
+aberrationPass.renderToScreen = true; 
+composer.addPass( aberrationPass );
+
+document.getElementById('toggle-gui').addEventListener('change', function(e) {
+  var guiPanel = document.getElementById('holo-gui');
+  guiPanel.style.display = e.target.checked ? 'block' : 'none';
+});
+
+document.getElementById('slide-bright').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.hologramBrightness.value = parseFloat(e.target.value);
+  document.getElementById('val-bright').innerText = e.target.value;
+});
+document.getElementById('slide-opacity').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.hologramOpacity.value = parseFloat(e.target.value);
+  document.getElementById('val-opacity').innerText = e.target.value;
+});
+document.getElementById('slide-fresnelOp').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.fresnelOpacity.value = parseFloat(e.target.value);
+  document.getElementById('val-fresnelOp').innerText = e.target.value;
+});
+document.getElementById('slide-fresnelAm').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.fresnelAmount.value = parseFloat(e.target.value);
+  document.getElementById('val-fresnelAm').innerText = e.target.value;
+});
+document.getElementById('slide-scanlineSz').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.scanlineSize.value = parseFloat(e.target.value);
+  document.getElementById('val-scanlineSz').innerText = e.target.value;
+});
+document.getElementById('slide-scanlineOp').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.scanlineOpacity.value = parseFloat(e.target.value);
+  document.getElementById('val-scanlineOp').innerText = e.target.value;
+});
+document.getElementById('slide-speed').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.signalSpeed.value = parseFloat(e.target.value);
+  document.getElementById('val-speed').innerText = e.target.value;
+});
+document.getElementById('slide-rgb').addEventListener('input', function(e) {
+  params.rgbShift = parseFloat(e.target.value);
+  aberrationPass.uniforms[ 'amount' ].value = params.rgbShift;
+  document.getElementById('val-rgb').innerText = e.target.value;
+});
+document.getElementById('slide-color').addEventListener('input', function(e) {
+  holographicMaterial.uniforms.hologramColor.value.set(e.target.value);
+});
+document.getElementById('check-blink').addEventListener('change', function(e) {
+  holographicMaterial.uniforms.enableBlinking.value = e.target.checked ? 1.0 : 0.0;
+});
+document.getElementById('check-blinkFresnel').addEventListener('change', function(e) {
+  holographicMaterial.uniforms.blinkFresnelOnly.value = e.target.checked ? 1.0 : 0.0;
+});
+
+var dracoLoader = new THREE.DRACOLoader(); 
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/'); 
+var loader = new THREE.GLTFLoader(); 
+loader.setDRACOLoader(dracoLoader); 
+
+loader.load( 
+  'https://cdn.jsdelivr.net/gh/Ipampero/drinkingbird-asset@main/TwixDrinkingBirdLastRigwireframecomporessed-v1.glb', 
+  function(gltf) { 
+    var model = gltf.scene; 
+    var box = new THREE.Box3().setFromObject(model); 
+    var center = box.getCenter(new THREE.Vector3()); 
+    var size = box.getSize(new THREE.Vector3()); 
+    var maxDim = Math.max(size.x, size.y, size.z); 
+    var scale = 3 / maxDim; 
+    model.position.sub(center.multiplyScalar(scale)); 
+    model.scale.setScalar(scale); 
+    
+    model.traverse(function(child) { 
+      if (child.isMesh) { 
+        child.geometry.computeVertexNormals(); 
+        child.material = holographicMaterial; 
+      } 
+    }); 
+    scene.add(model); 
+  }, 
+  undefined, 
+  function(err) { console.error('Error loading model:', err); } 
+); 
+
+window.addEventListener('resize', function() { 
+  W = window.innerWidth; 
+  H = window.innerHeight; 
+  camera.aspect = W / H; 
+  camera.updateProjectionMatrix(); 
+  renderer.setSize(W, H); 
+  composer.setSize(W, H); 
+}); 
+
+var clock = new THREE.Clock();
+function animate() { 
+  requestAnimationFrame(animate); 
+  controls.update(); 
+  
+  if (holographicMaterial && holographicMaterial.uniforms) {
+      var time = clock.getElapsedTime();
+      holographicMaterial.uniforms.time.value = time;
+      
+      if(aberrationPass) {
+          aberrationPass.uniforms[ 'angle' ].value = time * params.signalSpeed * 4.0;
+      }
+  }
+  
+  composer.render(); 
+} 
+animate(); 
+</script>
 </body>
 </html>
